@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --primary: 199 89% 28%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 173 58% 39%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 199 89% 28%;
+  --radius: 0.5rem;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+body {
+  font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+}
+
+[contenteditable="true"] {
+  cursor: text;
+}
+
+.editable-block:focus {
+  background: rgba(8, 145, 178, 0.06);
+}
+
+.document-page {
+  min-height: 297mm;
+}
+
+.latex-body-columns {
+  column-count: 2;
+  column-gap: 7mm;
+}
+
+.latex-flow-block {
+  break-inside: avoid;
+  margin-bottom: 0.9rem;
+}
+
+.latex-column-span-all {
+  column-span: all;
+}
+
+@media (max-width: 1400px) {
+  .workspace-grid {
+    grid-template-columns: 280px minmax(0, 1fr) 280px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .workspace-grid {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .workspace-sidebar,
+  .workspace-right {
+    min-height: auto;
+  }
+
+  .workspace-main {
+    min-height: 70vh;
+  }
+
+  .workspace-shell {
+    height: auto;
+    padding-bottom: 8.5rem;
+  }
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  body {
+    background: white;
+  }
+
+  header,
+  .workspace-sidebar,
+  .workspace-right,
+  .workspace-toolbar-bar,
+  .fixed {
+    display: none !important;
+  }
+
+  .workspace-grid {
+    display: block !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+
+  .workspace-main {
+    overflow: visible !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .workspace-main > div {
+    overflow: visible !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  .document-page {
+    width: auto !important;
+    min-height: auto !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+  }
+
+  .editable-block:focus {
+    background: transparent;
+  }
+}
