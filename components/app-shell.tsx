@@ -1,8 +1,24 @@
+"use client";
+
 import Link from "next/link";
-import { NotebookText, UserRound } from "lucide-react";
+import { LogIn, LogOut, NotebookText, UserRound } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { clearStoredAuthUser, readStoredAuthUser, type AuthUser } from "@/lib/auth";
 
 export function AppHeader() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    setAuthUser(readStoredAuthUser());
+  }, []);
+
+  function handleLogout() {
+    clearStoredAuthUser();
+    setAuthUser(null);
+    window.location.href = "/login";
+  }
+
   return (
     <header className="border-b bg-white">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
@@ -28,6 +44,19 @@ export function AppHeader() {
               个人
             </Link>
           </Button>
+          {authUser ? (
+            <Button variant="ghost" size="sm" onClick={handleLogout} title={authUser.email}>
+              <LogOut className="h-4 w-4" />
+              退出
+            </Button>
+          ) : (
+            <Button asChild variant="outline" size="sm">
+              <Link href="/login">
+                <LogIn className="h-4 w-4" />
+                登录
+              </Link>
+            </Button>
+          )}
         </nav>
       </div>
     </header>
