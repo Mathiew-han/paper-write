@@ -75,10 +75,15 @@ export type ManuscriptInput = {
   project_id: string;
   template_id: string;
   title: string;
+  english_title?: string | null;
   short_title: string;
   authors: ManuscriptAuthorInput[];
   affiliations: ManuscriptAffiliationInput[];
   abstract: string;
+  chinese_abstract?: string | null;
+  english_abstract?: string | null;
+  chinese_keywords?: string[];
+  english_keywords?: string[];
   highlights: string[];
   keywords: ManuscriptKeywordInput[];
   sections: ManuscriptSectionInput[];

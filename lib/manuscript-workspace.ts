@@ -321,6 +321,13 @@ function sanitizePrompt(prompt: string) {
   return prompt.replace(/[^\x20-\x7E]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function parseKeywordText(value?: string) {
+  return (value ?? "")
+    .split(/[;,，；]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function deriveEnglishTopic(prompt: string) {
   const normalized = sanitizePrompt(prompt);
   if (!normalized) {
@@ -444,6 +451,15 @@ export function buildSubmissionPayload(blocks: DocumentBlock[], template: Templa
   const abstractBlock = blocks.find(
     (block): block is TextBlock => block.kind === "text" && block.role === "abstract"
   );
+  const textBlocks = blocks.filter((block): block is TextBlock => block.kind === "text");
+  const isLzu = template.backendTemplateId === "lzu-master-thesis" || template.backendTemplateId === "lzu-doctor-thesis";
+  const englishTitleBlock = textBlocks.find((block) => block.id === "english-title" || block.label === "英文题名");
+  const chineseAbstractBlock = textBlocks.find((block) => block.id === "chinese-abstract" || block.label === "中文摘要");
+  const englishAbstractBlock = textBlocks.find((block) => block.id === "english-abstract" || block.label === "English Abstract");
+  const chineseKeywordsBlock = textBlocks.find((block) => block.id === "chinese-keywords" || block.label === "中文关键词");
+  const englishKeywordsBlock = textBlocks.find((block) => block.id === "english-keywords" || block.label === "English Keywords");
+  const chineseKeywords = parseKeywordText(chineseKeywordsBlock?.content);
+  const englishKeywords = parseKeywordText(englishKeywordsBlock?.content);
 
   const bodySections: { heading: string; body: string[] }[] = [];
   let activeSection: { heading: string; body: string[] } | null = null;
@@ -474,6 +490,7 @@ export function buildSubmissionPayload(blocks: DocumentBlock[], template: Templa
     project_id: "demo-project",
     template_id: template.backendTemplateId,
     title: titleBlock?.content.trim() || "Untitled manuscript",
+    english_title: isLzu ? englishTitleBlock?.content.trim() || null : undefined,
     short_title: (metaBlock?.content.split("|")[0] || titleBlock?.content || "Untitled").trim().slice(0, 80),
     authors: [
       {
@@ -513,7 +530,13 @@ export function buildSubmissionPayload(blocks: DocumentBlock[], template: Templa
         country: "China"
       }
     ],
-    abstract: abstractBlock?.content.trim() || "",
+    abstract: isLzu
+      ? chineseAbstractBlock?.content.trim() || abstractBlock?.content.trim() || ""
+      : abstractBlock?.content.trim() || "",
+    chinese_abstract: isLzu ? chineseAbstractBlock?.content.trim() || abstractBlock?.content.trim() || "" : undefined,
+    english_abstract: isLzu ? englishAbstractBlock?.content.trim() || null : undefined,
+    chinese_keywords: isLzu ? chineseKeywords : undefined,
+    english_keywords: isLzu ? englishKeywords : undefined,
     highlights: [
       "Immediate homepage prompt-to-PDF generation for manuscript initiation.",
       "Template-aware editing surface linked to the same LaTeX export pipeline.",
