@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CreditCard, Download, FileText, Loader2, Settings, UserRound } from "lucide-react";
+import { CreditCard, FileText, Loader2, Settings, UserRound } from "lucide-react";
 import { AppHeader } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchProjects, fetchUsageQuota, toAbsoluteApiUrl, type ProjectSummary, type UsageQuota } from "@/lib/api";
+import { fetchProjects, fetchUsageQuota, type ProjectSummary, type UsageQuota } from "@/lib/api";
 import { readStoredAuthUser, type AuthUser } from "@/lib/auth";
 
 function statusLabel(status: string) {
@@ -163,7 +163,6 @@ export default function ProfilePage() {
                     </thead>
                     <tbody className="divide-y bg-white">
                       {projects.map((project) => {
-                        const pdfUrl = toAbsoluteApiUrl(project.pdf_url ?? null);
                         return (
                           <tr key={project.project_id}>
                             <td className="max-w-[320px] px-4 py-3 font-medium">
@@ -179,16 +178,8 @@ export default function ProfilePage() {
                             <td className="px-4 py-3">
                               <div className="flex flex-wrap gap-2">
                                 <Button asChild variant="outline" size="sm">
-                                  <Link href={`/work?project=${encodeURIComponent(project.project_id)}`}>打开</Link>
+                                  <Link href={`/work?project=${encodeURIComponent(project.project_id)}`}>工作台</Link>
                                 </Button>
-                                {pdfUrl ? (
-                                  <Button asChild variant="ghost" size="sm">
-                                    <a href={pdfUrl} target="_blank" rel="noreferrer">
-                                      <Download className="h-4 w-4" />
-                                      PDF
-                                    </a>
-                                  </Button>
-                                ) : null}
                               </div>
                             </td>
                           </tr>

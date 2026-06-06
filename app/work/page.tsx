@@ -19,11 +19,11 @@ import { AppHeader } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  fetchAuthenticatedFileBlobUrl,
   fetchProject,
   fetchProjects,
   fetchProjectSteps,
   runProjectStep,
-  toAbsoluteApiUrl,
   type ProjectRecord,
   type ProjectStep,
   type ProjectStepAction,
@@ -125,13 +125,22 @@ function WorkPageInner() {
   const [runningStepId, setRunningStepId] = useState<string | null>(null);
   const [stepResult, setStepResult] = useState<ProjectStepRunResponse | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
     const storedUser = readStoredAuthUser();
     setAuthUser(storedUser);
+    if (!storedUser) {
+      setProjects([]);
+      setProjectListLoading(false);
+      setError(null);
+      return;
+    }
     setProjectListLoading(true);
-    void fetchProjects(storedUser?.user_id)
+    void fetchProjects(storedUser.user_id)
       .then((items) => {
         setProjects(items);
         setError(null);
@@ -183,8 +192,40 @@ function WorkPageInner() {
   const actions = stepsPayload?.available_actions ?? [];
   const activeStep = steps.find((step) => step.step_id === activeStepId) ?? steps[0] ?? null;
   const activeAction = actions.find((action) => action.step_id === activeStep?.step_id);
-  const pdfUrl = toAbsoluteApiUrl(project?.export_result?.pdf_url ?? project?.pdf_url ?? null);
+  const pdfPath = project?.export_result?.pdf_url ?? project?.pdf_url ?? null;
   const compileSucceeded = project?.export_result?.compile_succeeded ?? project?.compile_succeeded ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    setPdfPreviewUrl(null);
+    setPdfPreviewError(null);
+    if (!pdfPath) {
+      setPdfPreviewLoading(false);
+      return;
+    }
+    setPdfPreviewLoading(true);
+    void fetchAuthenticatedFileBlobUrl(pdfPath)
+      .then((url) => {
+        if (cancelled) {
+          if (url) URL.revokeObjectURL(url);
+          return;
+        }
+        createdUrl = url;
+        setPdfPreviewUrl(url);
+      })
+      .catch((err) => {
+        if (!cancelled) setPdfPreviewError(err instanceof Error ? err.message : "PDF 预览加载失败");
+      })
+      .finally(() => {
+        if (!cancelled) setPdfPreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [pdfPath]);
 
   async function handleRunStep(step: ProjectStep, action?: ProjectStepAction) {
     if (!project || !action?.enabled || !step.runnable) return;
@@ -248,10 +289,12 @@ function WorkPageInner() {
               </div>
             ) : projects.length === 0 ? (
               <div className="rounded-md border border-dashed bg-slate-50 p-4 text-sm text-muted-foreground">
-                暂无已生成文章。先回到首页上传材料并生成 PDF。
-                <Button asChild className="mt-3 w-full" size="sm">
-                  <Link href="/">新建生成</Link>
-                </Button>
+                {authUser ? "暂无已生成文章。先回到首页上传材料并生成 PDF。" : "请先登录，然后只能查看当前账号生成的文章。"}
+                <div className="mt-3 grid gap-2">
+                  <Button asChild className="w-full" size="sm">
+                    <Link href={authUser ? "/" : "/login"}>{authUser ? "新建生成" : "去登录"}</Link>
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
@@ -337,9 +380,21 @@ function WorkPageInner() {
                     <div className="mt-2">{error}</div>
                   </div>
                 </div>
-              ) : pdfUrl ? (
+              ) : pdfPreviewLoading ? (
+                <div className="flex h-full items-center justify-center rounded-md border bg-white text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  正在读取受保护 PDF
+                </div>
+              ) : pdfPreviewError ? (
+                <div className="flex h-full items-center justify-center rounded-md border border-amber-200 bg-amber-50 p-8 text-center text-sm text-amber-900">
+                  <div>
+                    <div className="font-medium">PDF 预览加载失败</div>
+                    <div className="mt-2">{pdfPreviewError}</div>
+                  </div>
+                </div>
+              ) : pdfPreviewUrl ? (
                 <div className="h-full overflow-hidden rounded-md border bg-white shadow-sm">
-                  <iframe title="PDF 工作台预览" src={pdfUrl} className="h-full w-full bg-white" />
+                  <iframe title="PDF 工作台预览" src={pdfPreviewUrl} className="h-full w-full bg-white" />
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center rounded-md border bg-white p-8 text-center text-sm text-muted-foreground">

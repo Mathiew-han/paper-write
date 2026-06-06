@@ -1,6 +1,7 @@
 export type AuthUser = {
   user_id: string;
   email: string;
+  auth_token: string;
 };
 
 export const AUTH_STORAGE_KEY = "mi-writing-auth-user-v1";
@@ -11,8 +12,14 @@ export function readStoredAuthUser(): AuthUser | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<AuthUser>;
-    if (typeof parsed.user_id === "string" && parsed.user_id && typeof parsed.email === "string") {
-      return { user_id: parsed.user_id, email: parsed.email };
+    if (
+      typeof parsed.user_id === "string" &&
+      parsed.user_id &&
+      typeof parsed.email === "string" &&
+      typeof parsed.auth_token === "string" &&
+      parsed.auth_token
+    ) {
+      return { user_id: parsed.user_id, email: parsed.email, auth_token: parsed.auth_token };
     }
   } catch {
     return null;

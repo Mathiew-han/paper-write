@@ -1,3 +1,5 @@
+import { readStoredAuthUser } from "@/lib/auth";
+
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8001/api";
 
@@ -295,6 +297,7 @@ export type BillingOrder = {
 export type AuthUserSession = {
   user_id: string;
   email: string;
+  auth_token: string;
   created_at: string;
   last_login_at: string;
   quota?: UsageQuota;
@@ -561,6 +564,17 @@ export async function registerWithPassword(input: {
   return parseApiResponse<AuthUserSession>(response);
 }
 
+function authHeaders(headers: Record<string, string> = {}): Record<string, string> {
+  const user = readStoredAuthUser();
+  if (!user?.auth_token) {
+    return headers;
+  }
+  return {
+    ...headers,
+    Authorization: `Bearer ${user.auth_token}`
+  };
+}
+
 async function parseApiResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null);
 
@@ -748,6 +762,7 @@ export async function generateDraftWithDataset(input: {
 
   const response = await fetch(`${API_BASE_URL}/ai/generate-draft`, {
     method: "POST",
+    headers: authHeaders(),
     body: formData,
   });
 
@@ -773,6 +788,7 @@ export async function submitGenerateDraftJob(input: {
 
   const response = await fetch(`${API_BASE_URL}/ai/generate-draft/jobs`, {
     method: "POST",
+    headers: authHeaders(),
     body: formData,
   });
 
@@ -782,6 +798,7 @@ export async function submitGenerateDraftJob(input: {
 export async function fetchGenerateDraftJob(jobId: string): Promise<GenerateDraftJobStatus> {
   const response = await fetch(`${API_BASE_URL}/ai/generate-draft/jobs/${encodeURIComponent(jobId)}`, {
     method: "GET",
+    headers: authHeaders(),
     cache: "no-store"
   });
   const job = await parseApiResponse<GenerateDraftJobStatus | (Omit<GenerateDraftJobStatus, "status"> & { status: "failed" })>(response);
@@ -838,6 +855,7 @@ export async function fetchProjects(userId?: string): Promise<ProjectSummary[]> 
   const query = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
   const response = await fetch(`${API_BASE_URL}/projects${query}`, {
     method: "GET",
+    headers: authHeaders(),
     cache: "no-store"
   });
   const payload = await parseApiResponse<{ projects: ProjectSummary[] }>(response);
@@ -847,6 +865,7 @@ export async function fetchProjects(userId?: string): Promise<ProjectSummary[]> 
 export async function fetchProject(projectId: string): Promise<ProjectRecord> {
   const response = await fetch(`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}`, {
     method: "GET",
+    headers: authHeaders(),
     cache: "no-store"
   });
   return parseApiResponse<ProjectRecord>(response);
@@ -855,6 +874,7 @@ export async function fetchProject(projectId: string): Promise<ProjectRecord> {
 export async function fetchProjectSteps(projectId: string): Promise<ProjectStepsResponse> {
   const response = await fetch(`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/steps`, {
     method: "GET",
+    headers: authHeaders(),
     cache: "no-store"
   });
   return parseApiResponse<ProjectStepsResponse>(response);
@@ -875,9 +895,9 @@ export async function runProjectStep(
     `${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/steps/${encodeURIComponent(stepId)}/run`,
     {
       method: "POST",
-      headers: {
+      headers: authHeaders({
         "Content-Type": "application/json"
-      },
+      }),
       body: JSON.stringify({
         prompt: payload?.prompt ?? null,
         supplemental_info: payload?.supplementalInfo ?? "",
@@ -901,9 +921,9 @@ export async function saveProjectWorkspace(
 ): Promise<ProjectRecord> {
   const response = await fetch(`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/workspace`, {
     method: "PUT",
-    headers: {
+    headers: authHeaders({
       "Content-Type": "application/json"
-    },
+    }),
     body: JSON.stringify({
       draft: payload.draft,
       manuscript: payload.manuscript,
@@ -917,12 +937,28 @@ export async function saveProjectWorkspace(
 export async function exportProjectPdf(projectId: string, payload: ManuscriptInput): Promise<SubmissionExportResult> {
   const response = await fetch(`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/export`, {
     method: "POST",
-    headers: {
+    headers: authHeaders({
       "Content-Type": "application/json"
-    },
+    }),
     body: JSON.stringify(payload)
   });
   return parseApiResponse<SubmissionExportResult>(response);
+}
+
+export async function fetchAuthenticatedFileBlobUrl(path: string | null | undefined): Promise<string | null> {
+  const url = toAbsoluteApiUrl(path);
+  if (!url) return null;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: authHeaders(),
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throwApiError(response.status, payload);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob.type ? blob : new Blob([blob], { type: "application/pdf" }));
 }
 
 export async function fetchKnowledgeIndexStats(): Promise<KnowledgeIndexStats> {

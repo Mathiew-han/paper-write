@@ -25,6 +25,7 @@ import {
   assessUploadedMaterials,
   createBillingOrder,
   DataQualityGateError,
+  fetchAuthenticatedFileBlobUrl,
   fetchFigurePromptOptions,
   fetchGenerateDraftJob,
   fetchUsageQuota,
@@ -42,6 +43,7 @@ import {
   type MaterialAssessment,
   type PdfSelfTestResult,
   type SubmissionExportResult,
+  type UploadedMaterialFile,
   type UsageQuota,
   type BillingOrder
 } from "@/lib/api";
@@ -172,6 +174,225 @@ type PersistedHomeDraft = {
   qualityGate: DatasetQualityGate | null;
   llmStatus: { used: boolean; provider?: string | null; error?: string | null } | null;
 };
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asString(value: unknown, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asNullableString(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+function asNumber(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function asBoolean(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function asStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isPlainRecord(value)) return undefined;
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function asNumberRecord(value: unknown): Record<string, number> {
+  if (!isPlainRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]))
+  );
+}
+
+function sanitizeUploadedMaterialFile(value: unknown): UploadedMaterialFile | null {
+  if (!isPlainRecord(value)) return null;
+  const originalName = asString(value.original_name || value.name);
+  if (!originalName) return null;
+  return {
+    original_name: originalName,
+    saved_path: asString(value.saved_path),
+    filetype: asString(value.filetype, "unknown"),
+    role: asString(value.role, "unknown"),
+    size_bytes: asNumber(value.size_bytes),
+    usable: asBoolean(value.usable),
+    summary: asString(value.summary),
+    warnings: asStringArray(value.warnings)
+  };
+}
+
+function sanitizeUploadedFileMetadata(value: unknown): UploadedFileMetadata[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isPlainRecord)
+    .map((file) => ({
+      name: asString(file.name),
+      size: asNumber(file.size),
+      type: asString(file.type),
+      lastModified: asNumber(file.lastModified),
+      path: asNullableString(file.path) ?? undefined
+    }))
+    .filter((file) => file.name);
+}
+
+function sanitizeMaterialAssessment(value: unknown): MaterialAssessment | null {
+  if (!isPlainRecord(value)) return null;
+  const label = asString(value.label, "材料信息待补充");
+  return {
+    decision: asString(value.decision, "review"),
+    ready: asBoolean(value.ready),
+    score: Math.max(0, Math.min(100, asNumber(value.score))),
+    label,
+    primary_dataset_path: asNullableString(value.primary_dataset_path),
+    primary_dataset_name: asNullableString(value.primary_dataset_name),
+    reference_file_path: asNullableString(value.reference_file_path),
+    reference_file_name: asNullableString(value.reference_file_name),
+    data_source: asString(value.data_source),
+    collection_method: asString(value.collection_method),
+    expected_problem: asString(value.expected_problem),
+    inferred_fields: asStringRecord(value.inferred_fields),
+    extracted_reference_hint: asNullableString(value.extracted_reference_hint),
+    files: Array.isArray(value.files)
+      ? value.files.map(sanitizeUploadedMaterialFile).filter((file): file is UploadedMaterialFile => Boolean(file))
+      : [],
+    reasons: asStringArray(value.reasons),
+    missing_items: asStringArray(value.missing_items),
+    recommendations: asStringArray(value.recommendations)
+  };
+}
+
+function sanitizeGovernance(value: unknown): DatasetGovernance | null {
+  if (!isPlainRecord(value)) return null;
+  const rawLevel = asString(value.compliance_level).toLowerCase();
+  const compliance_level: DatasetGovernance["compliance_level"] =
+    rawLevel === "high" || rawLevel === "medium" || rawLevel === "low" ? rawLevel : "low";
+  return {
+    source_description: asString(value.source_description),
+    collection_method: asString(value.collection_method),
+    expected_problem: asString(value.expected_problem),
+    compliance_level,
+    judgement: asString(value.judgement, "数据规范性信息不完整。"),
+    risks: asStringArray(value.risks),
+    recommendations: asStringArray(value.recommendations)
+  };
+}
+
+function sanitizeQualityGate(value: unknown): DatasetQualityGate | null {
+  if (!isPlainRecord(value)) return null;
+  const rawTier = asString(value.tier);
+  const rawAction = asString(value.action);
+  const rawGrade = asString(value.data_grade);
+  const tier: DatasetQualityGate["tier"] = rawTier === "block" || rawTier === "review" || rawTier === "pass" ? rawTier : "review";
+  const action: DatasetQualityGate["action"] =
+    rawAction === "blocked" || rawAction === "needs_confirmation" || rawAction === "auto_generate" ? rawAction : "needs_confirmation";
+  const data_grade: DatasetQualityGate["data_grade"] =
+    rawGrade === "D" || rawGrade === "C" || rawGrade === "B" || rawGrade === "A" || rawGrade === "S" ? rawGrade : null;
+  return {
+    score: Math.max(0, Math.min(100, asNumber(value.score))),
+    tier,
+    action,
+    label: asString(value.label, "数据质量需要复核"),
+    decision: asString(value.decision, "数据质量信息不完整，请补充材料后重试。"),
+    data_grade,
+    thresholds: asNumberRecord(value.thresholds),
+    reasons: asStringArray(value.reasons),
+    recommendations: asStringArray(value.recommendations),
+    sample_size: typeof value.sample_size === "number" ? value.sample_size : null,
+    positive_count: typeof value.positive_count === "number" ? value.positive_count : null,
+    negative_count: typeof value.negative_count === "number" ? value.negative_count : null,
+    feature_count: typeof value.feature_count === "number" ? value.feature_count : null,
+    target_name: asNullableString(value.target_name),
+    composite_auc: typeof value.composite_auc === "number" ? value.composite_auc : null
+  };
+}
+
+function sanitizeExportResult(value: unknown): SubmissionExportResult | null {
+  if (!isPlainRecord(value)) return null;
+  const templateId = asString(value.template_id);
+  const pdfPath = asNullableString(value.pdf_path);
+  const pdfUrl = asNullableString(value.pdf_url);
+  if (!templateId && !pdfPath && !pdfUrl) return null;
+  return {
+    template_id: templateId || "unknown-template",
+    tex_path: asString(value.tex_path),
+    bib_path: asNullableString(value.bib_path),
+    pdf_path: pdfPath,
+    pdf_url: pdfUrl,
+    work_dir: asString(value.work_dir),
+    compile_attempted: asBoolean(value.compile_attempted, Boolean(pdfPath || pdfUrl)),
+    compile_succeeded: asBoolean(value.compile_succeeded),
+    logs: asStringArray(value.logs)
+  };
+}
+
+function sanitizeLlmStatus(value: unknown): { used: boolean; provider?: string | null; error?: string | null } | null {
+  if (!isPlainRecord(value)) return null;
+  return {
+    used: asBoolean(value.used),
+    provider: asNullableString(value.provider),
+    error: asNullableString(value.error)
+  };
+}
+
+function sanitizeFigureOptions(value: unknown): FigurePromptOption[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isPlainRecord)
+    .map((option) => {
+      const id = asString(option.id);
+      const suitableFor = Array.isArray(option.suitable_for)
+        ? option.suitable_for
+            .filter(isPlainRecord)
+            .map((item) => {
+              const language = asString(item.language);
+              return language === "EN" || language === "中"
+                ? { language, label: asString(item.label) }
+                : null;
+            })
+            .filter((item): item is { language: "EN" | "中"; label: string } => Boolean(item))
+        : [];
+      return {
+        id,
+        label: asString(option.label, id),
+        description: asString(option.description),
+        prompt_focus: asString(option.prompt_focus, id),
+        prompt_en: asNullableString(option.prompt_en) ?? undefined,
+        prompt_zh: asNullableString(option.prompt_zh) ?? undefined,
+        suitable_for: suitableFor
+      };
+    })
+    .filter((option) => option.id);
+}
+
+function sanitizePdfSelfTestResult(value: unknown): PdfSelfTestResult | null {
+  if (!isPlainRecord(value)) return null;
+  return {
+    all_compile_succeeded: asBoolean(value.all_compile_succeeded),
+    results: Array.isArray(value.results)
+      ? value.results.map(sanitizeExportResult).filter((item): item is SubmissionExportResult => Boolean(item))
+      : []
+  };
+}
+
+function sanitizeGenerationProgress(value: unknown): GenerationProgressState | null {
+  if (!isPlainRecord(value)) return null;
+  return {
+    stage_id: asString(value.stage_id, "unknown"),
+    stage_name: asString(value.stage_name, "生成中"),
+    percent: Math.max(0, Math.min(100, asNumber(value.percent))),
+    message: asString(value.message, "后台任务正在生成。"),
+    thoughts: asStringArray(value.thoughts),
+    updated_at: asString(value.updated_at, new Date().toISOString())
+  };
+}
 
 function languageTagLabel(language: string) {
   if (language === "中") return "中文";
@@ -364,6 +585,9 @@ export default function HomePage() {
   const [isTestingPdf, setIsTestingPdf] = useState(false);
   const [selfTestTemplate, setSelfTestTemplate] = useState<TemplateId>("elsevier");
   const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
   const [hasHydratedHomeDraft, setHasHydratedHomeDraft] = useState(false);
   const [restoredFileMetadata, setRestoredFileMetadata] = useState<UploadedFileMetadata[]>([]);
   const [activeGenerationJobId, setActiveGenerationJobId] = useState<string | null>(null);
@@ -374,7 +598,7 @@ export default function HomePage() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeTemplate = templateSpecs[selectedTemplate];
-  const generatedPdfUrl = toAbsoluteApiUrl(generatedPdf?.pdf_url ?? null);
+  const generatedPdfPath = generatedPdf?.pdf_url ?? null;
   const selectedFigureOption = figureOptions.find((option) => option.id === selectedFigurePrompt) ?? figureOptions[0];
   const visibleFileMetadata = uploadedFiles.length ? uploadedFileMetadata(uploadedFiles) : restoredFileMetadata;
   const visibleFileNames = visibleFileMetadata.map((file) => file.name);
@@ -403,9 +627,9 @@ export default function HomePage() {
 
   function applyGenerationResult(result: GenerateDraftResponse) {
     setGeneratedProjectId(result.project_id);
-    setGeneratedPdf(result.export_result);
-    setGovernance(result.governance);
-    setQualityGate(result.quality_gate);
+    setGeneratedPdf(sanitizeExportResult(result.export_result));
+    setGovernance(sanitizeGovernance(result.governance));
+    setQualityGate(sanitizeQualityGate(result.quality_gate));
     if (result.billing_quota) {
       setUsageQuota(result.billing_quota);
     }
@@ -435,17 +659,27 @@ export default function HomePage() {
   function handleGenerationError(error: unknown) {
     clearGenerationResult();
     if (error instanceof MaterialQualityGateError) {
-      setPendingMaterialGate(error.materialGate);
-      setMaterialAssessment(error.materialGate);
-      setDataSource((current) => (current.trim() ? current : error.materialGate.data_source || ""));
-      setCollectionMethod((current) => (current.trim() ? current : error.materialGate.collection_method || ""));
-      setExpectedProblem((current) => (current.trim() ? current : error.materialGate.expected_problem || ""));
-      setGenerateError(error.materialGate.label);
+      const materialGate = sanitizeMaterialAssessment(error.materialGate);
+      if (!materialGate) {
+        setGenerateError(error.message || "材料质量判断失败，请补充材料后重试。");
+        return;
+      }
+      setPendingMaterialGate(materialGate);
+      setMaterialAssessment(materialGate);
+      setDataSource((current) => (current.trim() ? current : materialGate.data_source || ""));
+      setCollectionMethod((current) => (current.trim() ? current : materialGate.collection_method || ""));
+      setExpectedProblem((current) => (current.trim() ? current : materialGate.expected_problem || ""));
+      setGenerateError(materialGate.label);
       return;
     }
     if (error instanceof DataQualityGateError) {
-      setPendingQualityGate(error.qualityGate);
-      setGenerateError(error.qualityGate.decision);
+      const qualityGate = sanitizeQualityGate(error.qualityGate);
+      if (!qualityGate) {
+        setGenerateError(error.message || "数据质量判断失败，请补充数据后重试。");
+        return;
+      }
+      setPendingQualityGate(qualityGate);
+      setGenerateError(qualityGate.decision);
       return;
     }
     if (error instanceof PaymentRequiredError) {
@@ -459,7 +693,8 @@ export default function HomePage() {
   useEffect(() => {
     void fetchFigurePromptOptions()
       .then((options) => {
-        if (options.length > 0) setFigureOptions(options);
+        const sanitizedOptions = sanitizeFigureOptions(options);
+        if (sanitizedOptions.length > 0) setFigureOptions(sanitizedOptions);
       })
       .catch(() => undefined);
   }, []);
@@ -514,10 +749,16 @@ export default function HomePage() {
     })
       .then((assessment) => {
         if (cancelled) return;
-        setMaterialAssessment(assessment);
-        setDataSource((current) => (current.trim() ? current : assessment.data_source || ""));
-        setCollectionMethod((current) => (current.trim() ? current : assessment.collection_method || ""));
-        setExpectedProblem((current) => (current.trim() ? current : assessment.expected_problem || ""));
+        const sanitizedAssessment = sanitizeMaterialAssessment(assessment);
+        if (!sanitizedAssessment) {
+          setMaterialAssessment(null);
+          setMaterialAssessmentError("材料识别结果格式异常，请重新上传材料后再试。");
+          return;
+        }
+        setMaterialAssessment(sanitizedAssessment);
+        setDataSource((current) => (current.trim() ? current : sanitizedAssessment.data_source || ""));
+        setCollectionMethod((current) => (current.trim() ? current : sanitizedAssessment.collection_method || ""));
+        setExpectedProblem((current) => (current.trim() ? current : sanitizedAssessment.expected_problem || ""));
       })
       .catch((error) => {
         if (cancelled) return;
@@ -545,22 +786,13 @@ export default function HomePage() {
       if (typeof stored.supplementalInfo === "string") setSupplementalInfo(stored.supplementalInfo);
       if (typeof stored.selectedFigurePrompt === "string") setSelectedFigurePrompt(stored.selectedFigurePrompt);
       if (isTemplateId(stored.selfTestTemplate)) setSelfTestTemplate(stored.selfTestTemplate);
-      if (stored.materialAssessment) setMaterialAssessment(stored.materialAssessment);
-      if (Array.isArray(stored.uploadedFileMetadata)) {
-        setRestoredFileMetadata(
-          stored.uploadedFileMetadata.filter(
-            (file) =>
-              typeof file.name === "string" &&
-              typeof file.size === "number" &&
-              typeof file.lastModified === "number"
-          )
-        );
-      }
+      setMaterialAssessment(sanitizeMaterialAssessment(stored.materialAssessment));
+      setRestoredFileMetadata(sanitizeUploadedFileMetadata(stored.uploadedFileMetadata));
       setGeneratedProjectId(typeof stored.generatedProjectId === "string" ? stored.generatedProjectId : null);
-      setGeneratedPdf(stored.generatedPdf ?? null);
-      setGovernance(stored.governance ?? null);
-      setQualityGate(stored.qualityGate ?? null);
-      setLlmStatus(stored.llmStatus ?? null);
+      setGeneratedPdf(sanitizeExportResult(stored.generatedPdf));
+      setGovernance(sanitizeGovernance(stored.governance));
+      setQualityGate(sanitizeQualityGate(stored.qualityGate));
+      setLlmStatus(sanitizeLlmStatus(stored.llmStatus));
     }
 
     const storedJob = readJsonFromLocalStorage<{ job_id?: string; jobId?: string }>(HOME_JOB_STORAGE_KEY);
@@ -616,6 +848,37 @@ export default function HomePage() {
   ]);
 
   useEffect(() => {
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    setPdfPreviewUrl(null);
+    setPdfPreviewError(null);
+    if (!pdfViewerOpen || !generatedPdfPath) {
+      setPdfPreviewLoading(false);
+      return;
+    }
+    setPdfPreviewLoading(true);
+    void fetchAuthenticatedFileBlobUrl(generatedPdfPath)
+      .then((url) => {
+        if (cancelled) {
+          if (url) URL.revokeObjectURL(url);
+          return;
+        }
+        createdUrl = url;
+        setPdfPreviewUrl(url);
+      })
+      .catch((error) => {
+        if (!cancelled) setPdfPreviewError(error instanceof Error ? error.message : "PDF 预览加载失败");
+      })
+      .finally(() => {
+        if (!cancelled) setPdfPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [pdfViewerOpen, generatedPdfPath]);
+
+  useEffect(() => {
     if (!hasHydratedHomeDraft) return;
     if (activeGenerationJobId) {
       writeJsonToLocalStorage(HOME_JOB_STORAGE_KEY, {
@@ -637,7 +900,7 @@ export default function HomePage() {
       try {
         const job = await fetchGenerateDraftJob(activeGenerationJobId);
         if (cancelled) return;
-        setGenerationProgressState(job.progress ?? null);
+        setGenerationProgressState(sanitizeGenerationProgress(job.progress));
         if (job.status === "succeeded" && job.result) {
           applyGenerationResult(job.result);
           setIsGenerating(false);
@@ -1498,7 +1761,7 @@ export default function HomePage() {
                         type="button"
                         variant="outline"
                         onClick={() => setPdfViewerOpen(true)}
-                        disabled={!generatedPdfUrl}
+                        disabled={!generatedPdfPath}
                       >
                         <Eye className="h-4 w-4" />
                         查看 PDF
@@ -1509,14 +1772,6 @@ export default function HomePage() {
                             <Eye className="h-4 w-4" />
                             工作台预览
                           </Link>
-                        </Button>
-                      ) : null}
-                      {generatedPdfUrl ? (
-                        <Button asChild>
-                          <a href={generatedPdfUrl} target="_blank" rel="noreferrer">
-                            <Download className="h-4 w-4" />
-                            下载 PDF
-                          </a>
                         </Button>
                       ) : null}
                     </div>
@@ -1612,7 +1867,7 @@ export default function HomePage() {
         </div>
       ) : null}
 
-      {pdfViewerOpen && generatedPdfUrl ? (
+      {pdfViewerOpen && generatedPdfPath ? (
         <div className="fixed inset-0 z-50 bg-slate-950/60 p-4 backdrop-blur-sm">
           <div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl">
             <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
@@ -1621,11 +1876,16 @@ export default function HomePage() {
                 <div className="text-xs text-muted-foreground">{generatedPdf?.template_id}</div>
               </div>
               <div className="flex items-center gap-2">
-                <Button asChild variant="outline">
-                  <a href={generatedPdfUrl} target="_blank" rel="noreferrer">
-                    <Download className="h-4 w-4" />
-                    下载
-                  </a>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (pdfPreviewUrl) window.open(pdfPreviewUrl, "_blank", "noopener,noreferrer");
+                  }}
+                  disabled={!pdfPreviewUrl}
+                >
+                  <Eye className="h-4 w-4" />
+                  新窗口
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => setPdfViewerOpen(false)} title="关闭预览">
                   <X className="h-4 w-4" />
@@ -1633,7 +1893,22 @@ export default function HomePage() {
               </div>
             </div>
             <div className="min-h-0 flex-1 bg-slate-100 p-3">
-              <iframe title="Generated PDF Preview" src={generatedPdfUrl} className="h-full w-full rounded-xl border bg-white" />
+              {pdfPreviewLoading ? (
+                <div className="flex h-full items-center justify-center rounded-xl border bg-white text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  正在读取受保护 PDF
+                </div>
+              ) : pdfPreviewError ? (
+                <div className="flex h-full items-center justify-center rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+                  {pdfPreviewError}
+                </div>
+              ) : pdfPreviewUrl ? (
+                <iframe title="Generated PDF Preview" src={pdfPreviewUrl} className="h-full w-full rounded-xl border bg-white" />
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-xl border bg-white text-sm text-muted-foreground">
+                  暂无可预览 PDF。
+                </div>
+              )}
             </div>
           </div>
         </div>

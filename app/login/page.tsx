@@ -104,8 +104,8 @@ export default function LoginPage() {
     setDevCode(null);
   }
 
-  function persistSession(session: { user_id: string; email: string }) {
-    writeStoredAuthUser({ user_id: session.user_id, email: session.email });
+  function persistSession(session: { user_id: string; email: string; auth_token: string }) {
+    writeStoredAuthUser({ user_id: session.user_id, email: session.email, auth_token: session.auth_token });
     router.push("/");
   }
 
