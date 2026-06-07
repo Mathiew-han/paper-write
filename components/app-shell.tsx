@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogIn, LogOut, NotebookText, UserRound } from "lucide-react";
+import { LogIn, LogOut, NotebookText, Shield, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { clearStoredAuthUser, readStoredAuthUser, type AuthUser } from "@/lib/auth";
@@ -42,6 +42,12 @@ export function AppHeader() {
             <Link href="/profile">
               <UserRound className="h-4 w-4" />
               个人
+            </Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/admin">
+              <Shield className="h-4 w-4" />
+              后台
             </Link>
           </Button>
           {authUser ? (

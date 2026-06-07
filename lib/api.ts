@@ -504,6 +504,71 @@ export type ProjectStepRunResponse = {
   summary: string;
 };
 
+export type AdminUserSummary = {
+  user_id: string;
+  email: string;
+  created_at: string;
+  last_login_at: string;
+  has_password: boolean;
+  project_count: number;
+};
+
+export type AdminReviewSummary = {
+  audit_passed: boolean;
+  audit_item_count: number;
+  fallback_step_count: number;
+  llm_generated_step_count: number;
+  figure_model: string;
+  figure_fallback_used: boolean;
+  compile_succeeded: boolean;
+};
+
+export type AdminProjectSummary = ProjectSummary & {
+  user_email: string;
+  review: AdminReviewSummary;
+};
+
+export type AdminOverview = {
+  users: AdminUserSummary[];
+  projects: AdminProjectSummary[];
+  stats: {
+    user_count: number;
+    project_count: number;
+    exported_count: number;
+    compile_success_count: number;
+  };
+};
+
+export type AdminReviewStep = {
+  order: number;
+  stage_id: string;
+  stage_name: string;
+  status: string;
+  artifact_format: string;
+  source_contexts: string[];
+  summary: string;
+  content: unknown;
+};
+
+export type AdminProjectDetail = {
+  project: ProjectRecord;
+  user: {
+    user_id: string;
+    email: string;
+    created_at?: string;
+    last_login_at?: string;
+  };
+  review_process: {
+    material_assessment?: MaterialAssessment | null;
+    workflow_steps: AdminReviewStep[];
+    workflow_audit?: Record<string, unknown>;
+    figure_generation?: Record<string, unknown> | null;
+    export_result?: SubmissionExportResult | null;
+    source_files: UploadedMaterialFile[];
+    summary: AdminReviewSummary;
+  };
+};
+
 export async function sendEmailLoginCode(input: { email: string }): Promise<EmailCodeDelivery> {
   const response = await fetch(`${API_BASE_URL}/auth/send-code`, {
     method: "POST",
@@ -908,6 +973,28 @@ export async function runProjectStep(
     }
   );
   return parseApiResponse<ProjectStepRunResponse>(response);
+}
+
+export async function fetchAdminOverview(adminKey: string, limit = 100): Promise<AdminOverview> {
+  const response = await fetch(`${API_BASE_URL}/admin/overview?limit=${encodeURIComponent(String(limit))}`, {
+    method: "GET",
+    headers: {
+      "X-Admin-Key": adminKey
+    },
+    cache: "no-store"
+  });
+  return parseApiResponse<AdminOverview>(response);
+}
+
+export async function fetchAdminProjectDetail(adminKey: string, projectId: string): Promise<AdminProjectDetail> {
+  const response = await fetch(`${API_BASE_URL}/admin/projects/${encodeURIComponent(projectId)}`, {
+    method: "GET",
+    headers: {
+      "X-Admin-Key": adminKey
+    },
+    cache: "no-store"
+  });
+  return parseApiResponse<AdminProjectDetail>(response);
 }
 
 export async function saveProjectWorkspace(
