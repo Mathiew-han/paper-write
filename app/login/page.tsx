@@ -51,7 +51,7 @@ function normalizeCode(value: string) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+  const turnstileSiteKey = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "").replace(/^\uFEFF/, "").trim();
   const turnstileRef = useRef<HTMLDivElement | null>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const [mode, setMode] = useState<AuthMode>("login");

@@ -424,7 +424,12 @@ function isTemplateId(value: unknown): value is TemplateId {
 
 function readJsonFromLocalStorage<T>(key: string): T | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(key);
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
   if (!raw) return null;
   try {
     return JSON.parse(raw) as T;
@@ -435,12 +440,20 @@ function readJsonFromLocalStorage<T>(key: string): T | null {
 
 function writeJsonToLocalStorage(key: string, value: unknown) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Local draft persistence is optional; storage failures must not crash the page.
+  }
 }
 
 function removeLocalStorageItem(key: string) {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(key);
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Local draft persistence is optional; storage failures must not crash the page.
+  }
 }
 
 function uploadedFileMetadata(files: File[]): UploadedFileMetadata[] {
