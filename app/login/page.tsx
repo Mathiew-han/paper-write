@@ -68,6 +68,7 @@ export default function LoginPage() {
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [turnstileRenderNonce, setTurnstileRenderNonce] = useState(0);
   const codeReady = code.length === 6;
 
   useEffect(() => {
@@ -76,27 +77,53 @@ export default function LoginPage() {
     }
 
     if (turnstileWidgetIdRef.current) {
-      window.turnstile.reset(turnstileWidgetIdRef.current);
       return;
     }
 
-    turnstileWidgetIdRef.current = window.turnstile.render(turnstileRef.current, {
-      sitekey: turnstileSiteKey,
-      theme: "light",
-      callback: (token) => {
-        setTurnstileToken(token);
-        setError(null);
-      },
-      "expired-callback": () => {
-        setTurnstileToken("");
-        setError("人机验证已过期，请重新验证。");
-      },
-      "error-callback": () => {
-        setTurnstileToken("");
-        setError("人机验证加载失败，请刷新后重试。");
-      }
-    });
-  }, [turnstileOpen, turnstileSiteKey, isScriptReady]);
+    try {
+      turnstileWidgetIdRef.current = window.turnstile.render(turnstileRef.current, {
+        sitekey: turnstileSiteKey,
+        theme: "light",
+        callback: (token) => {
+          setTurnstileToken(token);
+          setError(null);
+        },
+        "expired-callback": () => {
+          setTurnstileToken("");
+          setError("人机验证已过期，请重新验证。");
+        },
+        "error-callback": () => {
+          setTurnstileToken("");
+          setError("人机验证加载失败，请刷新后重试。");
+        }
+      });
+    } catch {
+      setTurnstileToken("");
+      setError("人机验证加载失败，请刷新后重试。");
+    }
+
+    return () => {
+      removeTurnstileWidget();
+    };
+  }, [turnstileOpen, turnstileSiteKey, isScriptReady, turnstileRenderNonce]);
+
+  function removeTurnstileWidget() {
+    const widgetId = turnstileWidgetIdRef.current;
+    if (!widgetId) return;
+    try {
+      window.turnstile?.remove?.(widgetId);
+    } catch {
+      // Turnstile may already have removed the widget internally.
+    } finally {
+      turnstileWidgetIdRef.current = null;
+    }
+  }
+
+  function refreshTurnstileWidget() {
+    removeTurnstileWidget();
+    setTurnstileToken("");
+    setTurnstileRenderNonce((value) => value + 1);
+  }
 
   function resetFeedback() {
     setError(null);
@@ -164,10 +191,7 @@ export default function LoginPage() {
       persistSession(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "注册失败");
-      setTurnstileToken("");
-      if (window.turnstile && turnstileWidgetIdRef.current) {
-        window.turnstile.reset(turnstileWidgetIdRef.current);
-      }
+      refreshTurnstileWidget();
     } finally {
       setIsSubmitting(false);
     }
@@ -428,6 +452,7 @@ export default function LoginPage() {
                 type="button"
                 variant="outline"
                 onClick={() => {
+                  removeTurnstileWidget();
                   setTurnstileOpen(false);
                   setTurnstileToken("");
                 }}
